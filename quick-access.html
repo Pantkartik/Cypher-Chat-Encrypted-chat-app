@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cypher Chat - Quick Access</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h1 { color: #333; margin-bottom: 30px; }
+        .button {
+            display: inline-block;
+            padding: 15px 30px;
+            margin: 10px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        .button.secondary {
+            background: #764ba2;
+        }
+        .input-group {
+            margin: 20px 0;
+        }
+        input {
+            padding: 12px;
+            margin: 5px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            width: 200px;
+        }
+        .info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Cypher Chat Quick Access</h1>
+        
+        <div class="info">
+            <h3>How to access the chat:</h3>
+            <ol>
+                <li><strong>Option 1:</strong> Create a new session</li>
+                <li><strong>Option 2:</strong> Join existing session with token</li>
+                <li><strong>Option 3:</strong> Use the test connection below</li>
+            </ol>
+        </div>
+
+        <div id="status" class="status" style="display: none;"></div>
+
+        <div class="button-group">
+            <a href="http://localhost:3000/session/host" class="button">🚀 Create New Session</a>
+            <a href="http://localhost:3000/session/join" class="button secondary">🔗 Join Session</a>
+        </div>
+
+        <div class="input-group">
+            <h3>Quick Join (Test)</h3>
+            <input type="text" id="sessionToken" placeholder="Enter session token" value="TEST123">
+            <input type="text" id="userName" placeholder="Your name" value="User">
+            <br>
+            <button onclick="quickJoin()" class="button" style="border: none; cursor: pointer;">⚡ Quick Join Chat</button>
+        </div>
+
+        <div class="info">
+            <h3>Backend Status:</h3>
+            <div id="backend-status">Checking...</div>
+        </div>
+
+        <div style="margin-top: 30px;">
+            <a href="http://localhost:3001/admin" target="_blank" style="color: #666; text-decoration: none; font-size: 14px;">🔧 Admin Panel</a>
+            | 
+            <a href="http://localhost:3001/api/health" target="_blank" style="color: #666; text-decoration: none; font-size: 14px;">📊 Health Check</a>
+        </div>
+    </div>
+
+    <script>
+        // Check backend status
+        async function checkBackendStatus() {
+            try {
+                const response = await fetch('http://localhost:3001/api/health');
+                const data = await response.json();
+                document.getElementById('backend-status').innerHTML = 
+                    `<span style="color: green;">✅ Backend is running</span><br>
+                     Port: 3001<br>
+                     Status: ${data.status}<br>
+                     Uptime: ${Math.round(data.uptime)}s`;
+            } catch (error) {
+                document.getElementById('backend-status').innerHTML = 
+                    `<span style="color: red;">❌ Backend connection failed</span><br>
+                     Error: ${error.message}<br>
+                     Make sure the backend server is running on port 3001`;
+            }
+        }
+
+        function quickJoin() {
+            const sessionToken = document.getElementById('sessionToken').value;
+            const userName = document.getElementById('userName').value;
+            
+            if (!sessionToken || !userName) {
+                alert('Please enter both session token and username');
+                return;
+            }
+            
+            // Navigate to the chat page
+            window.open(`http://localhost:3000/auth/chat/${sessionToken}?username=${encodeURIComponent(userName)}`, '_blank');
+        }
+
+        // Check status on page load
+        window.onload = function() {
+            checkBackendStatus();
+        };
+    </script>
+</body>
+</html>

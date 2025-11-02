@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Chat Connection</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .disconnected { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .error { background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .messages { border: 1px solid #ddd; height: 300px; overflow-y: auto; padding: 10px; margin: 20px 0; }
+        .message { margin: 5px 0; padding: 8px; background-color: #f8f9fa; border-radius: 5px; }
+        input, button { padding: 10px; margin: 5px; }
+        input { width: 200px; }
+        button { cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>Test Chat Connection</h1>
+    
+    <div id="status" class="status disconnected">Disconnected</div>
+    
+    <div>
+        <input type="text" id="sessionId" placeholder="Session ID" value="TEST123">
+        <input type="text" id="username" placeholder="Username" value="TestUser">
+        <button onclick="connect()">Connect to Chat</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </div>
+    
+    <div class="messages" id="messages"></div>
+    
+    <div>
+        <input type="text" id="messageInput" placeholder="Type a message...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <script>
+        let socket;
+        let isConnected = false;
+
+        function updateStatus(status, message) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status ' + status;
+            statusDiv.textContent = message;
+        }
+
+        function addMessage(text, type = 'info') {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            messageDiv.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function connect() {
+            if (isConnected) {
+                addMessage('Already connected');
+                return;
+            }
+
+            const sessionId = document.getElementById('sessionId').value;
+            const username = document.getElementById('username').value;
+
+            if (!sessionId || !username) {
+                alert('Please enter both session ID and username');
+                return;
+            }
+
+            addMessage(`Attempting to connect to session ${sessionId} as ${username}...`);
+
+            // Create socket connection
+            socket = io('http://localhost:3001');
+
+            socket.on('connect', function() {
+                isConnected = true;
+                updateStatus('connected', 'Connected to server');
+                addMessage('Connected to server');
+                
+                // Join the session
+                socket.emit('joinSession', { sessionId, username });
+                addMessage(`Joined session ${sessionId}`);
+            });
+
+            socket.on('disconnect', function() {
+                isConnected = false;
+                updateStatus('disconnected', 'Disconnected from server');
+                addMessage('Disconnected from server');
+            });
+
+            socket.on('connect_error', function(error) {
+                updateStatus('error', 'Connection error: ' + error.message);
+                addMessage('Connection error: ' + error.message);
+            });
+
+            socket.on('receiveMessage', function(msg) {
+                addMessage(`${msg.userName}: ${atob(msg.content)}`);
+            });
+
+            socket.on('userJoined', function(user) {
+                addMessage(`User joined: ${user.name}`);
+            });
+
+            socket.on('userLeft', function(user) {
+                addMessage(`User left: ${user.name}`);
+            });
+
+            socket.on('userCountUpdate', function(count) {
+                addMessage(`User count: ${count}`);
+            });
+
+            socket.on('usersList', function(users) {
+                addMessage(`Users in session: ${users.map(u => u.name).join(', ')}`);
+            });
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+        }
+
+        function sendMessage() {
+            if (!isConnected) {
+                alert('Not connected to chat');
+                return;
+            }
+
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+
+            if (!message) {
+                alert('Please enter a message');
+                return;
+            }
+
+            const sessionId = document.getElementById('sessionId').value;
+            const username = document.getElementById('username').value;
+
+            // Encrypt message (base64)
+            const encryptedMessage = btoa(message);
+
+            socket.emit('sendMessage', {
+                sessionId: sessionId,
+                username: username,
+                message: encryptedMessage,
+                messageData: {
+                    id: Date.now().toString(),
+                    userId: username,
+                    userName: username,
+                    content: encryptedMessage,
+                    timestamp: new Date().toISOString(),
+                    encrypted: true,
+                    status: 'sent'
+                }
+            });
+
+            addMessage(`You: ${message}`);
+            messageInput.value = '';
+        }
+
+        // Allow Enter key to send message
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Auto-connect on page load
+        window.onload = function() {
+            addMessage('Page loaded. Click "Connect to Chat" to test the connection.');
+        };
+    </script>
+</body>
+</html>
