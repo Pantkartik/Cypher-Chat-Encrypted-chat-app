@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser Console Debug</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .console { background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+        .info { color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <h1>Browser Console Debug</h1>
+    <p>Open this page and check the console below for connection errors:</p>
+    
+    <button onclick="testConnection()">Test Connection</button>
+    <button onclick="clearConsole()">Clear Console</button>
+    
+    <div id="console" class="console"></div>
+
+    <script>
+        const consoleDiv = document.getElementById('console');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}`;
+            consoleDiv.innerHTML += `<div class="${type}">${logEntry}</div>`;
+            console.log(logEntry);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+        
+        function clearConsole() {
+            consoleDiv.innerHTML = '';
+        }
+        
+        function testConnection() {
+            log('Starting connection test...', 'info');
+            
+            try {
+                const socket = io('http://localhost:3001', {
+                    transports: ['websocket', 'polling'],
+                    timeout: 10000,
+                    forceNew: true
+                });
+                
+                socket.on('connect', function() {
+                    log('✅ Socket connected successfully!', 'success');
+                    log(`Socket ID: ${socket.id}`, 'success');
+                    
+                    // Test joining a session
+                    socket.emit('joinSession', { sessionId: 'TEST123', username: 'DebugUser' });
+                });
+                
+                socket.on('connect_error', function(error) {
+                    log(`❌ Connection error: ${error.message}`, 'error');
+                    log(`Error type: ${error.type}`, 'error');
+                    
+                    if (error.message.includes('CORS')) {
+                        log('🔧 This is a CORS issue', 'error');
+                    } else if (error.message.includes('ECONNREFUSED')) {
+                        log('🔧 Server is not running or port is blocked', 'error');
+                    } else if (error.message.includes('timeout')) {
+                        log('🔧 Connection timeout', 'error');
+                    }
+                });
+                
+                socket.on('disconnect', function(reason) {
+                    log(`🔌 Disconnected: ${reason}`, 'info');
+                });
+                
+                socket.on('error', function(error) {
+                    log(`💥 Socket error: ${error}`, 'error');
+                });
+                
+                socket.on('userJoined', function(user) {
+                    log(`👤 User joined: ${JSON.stringify(user)}`, 'success');
+                });
+                
+                socket.on('userCountUpdate', function(count) {
+                    log(`👥 User count: ${count}`, 'info');
+                });
+                
+            } catch (error) {
+                log(`🚨 Failed to create socket: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-test on page load
+        window.onload = function() {
+            log('Debug page loaded', 'info');
+            setTimeout(testConnection, 1000); // Auto-test after 1 second
+        };
+    </script>
+</body>
+</html>

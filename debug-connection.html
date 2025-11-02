@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Chat Connection</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .log { padding: 10px; margin: 5px 0; border-radius: 5px; font-family: monospace; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        #logs { max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        input { padding: 10px; margin: 5px; width: 200px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Debug Chat Connection</h1>
+    
+    <div>
+        <input type="text" id="sessionId" placeholder="Session ID" value="TEST123">
+        <input type="text" id="username" placeholder="Username" value="DebugUser">
+        <button onclick="testConnection()">Test Connection</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+
+    <div id="logs"></div>
+
+    <script>
+        let socket;
+        const logs = document.getElementById('logs');
+
+        function log(message, type = 'info') {
+            const logDiv = document.createElement('div');
+            logDiv.className = 'log ' + type;
+            logDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(logDiv);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function clearLogs() {
+            logs.innerHTML = '';
+        }
+
+        function testConnection() {
+            const sessionId = document.getElementById('sessionId').value;
+            const username = document.getElementById('username').value;
+
+            log('Starting connection test...', 'info');
+            log(`Session ID: ${sessionId}`, 'info');
+            log(`Username: ${username}`, 'info');
+
+            // Test basic HTTP connection first
+            log('Testing HTTP connection to backend...', 'info');
+            fetch('http://localhost:3001/api/health')
+                .then(response => response.json())
+                .then(data => {
+                    log(`HTTP connection successful: ${JSON.stringify(data)}`, 'success');
+                    testSocketConnection(sessionId, username);
+                })
+                .catch(error => {
+                    log(`HTTP connection failed: ${error.message}`, 'error');
+                    log('This might be a CORS or server issue', 'error');
+                });
+        }
+
+        function testSocketConnection(sessionId, username) {
+            log('Testing Socket.IO connection...', 'info');
+            
+            try {
+                // Create socket connection with detailed error handling
+                socket = io('http://localhost:3001', {
+                    transports: ['websocket', 'polling'],
+                    timeout: 10000,
+                    forceNew: true
+                });
+
+                socket.on('connect', function() {
+                    log('✅ Socket connected successfully!', 'success');
+                    log(`Socket ID: ${socket.id}`, 'success');
+                    
+                    // Now try to join session
+                    log('Attempting to join session...', 'info');
+                    socket.emit('joinSession', { sessionId, username });
+                });
+
+                socket.on('connect_error', function(error) {
+                    log(`❌ Connection error: ${error.message}`, 'error');
+                    log(`Error type: ${error.type}`, 'error');
+                    log(`Error description: ${error.description}`, 'error');
+                    
+                    if (error.message.includes('CORS')) {
+                        log('🔧 This is a CORS issue. Check backend CORS configuration.', 'warning');
+                    } else if (error.message.includes('ECONNREFUSED')) {
+                        log('🔧 Server is not running or port is blocked.', 'warning');
+                    } else if (error.message.includes('timeout')) {
+                        log('🔧 Connection timeout. Server might be slow or unresponsive.', 'warning');
+                    }
+                });
+
+                socket.on('disconnect', function(reason) {
+                    log(`🔌 Disconnected: ${reason}`, 'warning');
+                });
+
+                socket.on('error', function(error) {
+                    log(`💥 Socket error: ${error}`, 'error');
+                });
+
+                // Session-specific events
+                socket.on('userJoined', function(user) {
+                    log(`👤 User joined: ${JSON.stringify(user)}`, 'success');
+                });
+
+                socket.on('userLeft', function(user) {
+                    log(`👋 User left: ${JSON.stringify(user)}`, 'success');
+                });
+
+                socket.on('userCountUpdate', function(count) {
+                    log(`👥 User count: ${count}`, 'info');
+                });
+
+                socket.on('usersList', function(users) {
+                    log(`📋 Users list: ${JSON.stringify(users)}`, 'info');
+                });
+
+                socket.on('receiveMessage', function(msg) {
+                    log(`💬 Message received: ${JSON.stringify(msg)}`, 'info');
+                });
+
+                // Test message after joining
+                setTimeout(() => {
+                    if (socket.connected) {
+                        log('Sending test message...', 'info');
+                        const testMessage = btoa('Hello from debug client!');
+                        socket.emit('sendMessage', {
+                            sessionId: sessionId,
+                            username: username,
+                            message: testMessage,
+                            messageData: {
+                                id: Date.now().toString(),
+                                userId: username,
+                                userName: username,
+                                content: testMessage,
+                                timestamp: new Date().toISOString(),
+                                encrypted: true,
+                                status: 'sent'
+                            }
+                        });
+                    }
+                }, 2000);
+
+            } catch (error) {
+                log(`🚨 Failed to create socket: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-test on page load
+        window.onload = function() {
+            log('Debug page loaded', 'info');
+            log('Click "Test Connection" to start debugging', 'info');
+        };
+    </script>
+</body>
+</html>

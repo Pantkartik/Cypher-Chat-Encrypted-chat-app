@@ -41,6 +41,7 @@ import Link from "next/link"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { UserMenu } from "@/components/user-menu";
 import io from "socket.io-client"
+import { SOCKET_URL } from "@/lib/config"
 import JitsiVideoCall from "@/components/jitsi-video-call"
 
 interface Message {
@@ -147,7 +148,7 @@ export default function ChatPage() {
      }
      
      try {
-       const socket = io("http://localhost:3001");
+       const socket = io(SOCKET_URL);
        socketRef.current = socket;
        
        socket.on("connect", () => {

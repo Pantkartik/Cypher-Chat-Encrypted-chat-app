@@ -6,7 +6,8 @@ const path = require('path');
 require('dotenv').config();
 
 const auth = require('./auth');
-const originalApp = require('./index'); // Your existing app
+const originalModule = require('./index'); // Your existing app
+const originalApp = originalModule.app; // Extract the app from the exported object
 
 const app = express();
 
@@ -78,23 +79,10 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Mount original app under /api/chat for protected access
-app.use('/api/chat', auth.requireAuth, originalApp);
-
-// Mount original app normally for existing functionality
-// This preserves your existing routes while adding security
-const originalRoutes = express.Router();
-
-// Copy all routes from original app
-Object.keys(originalApp._router.stack).forEach((key) => {
-  const layer = originalApp._router.stack[key];
-  if (layer.route) {
-    originalRoutes.use(layer.route.path, layer.route.stack[0].handle);
-  }
-});
-
-// Apply original routes without authentication for backward compatibility
-app.use(originalRoutes);
+// Mount original app routes without authentication for backward compatibility
+// The original app is already set up with its own routes, so we just need to
+// import and use its router setup
+app.use('/', originalApp);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -119,7 +107,7 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002; // Use different port to avoid conflict with original server
 
 app.listen(PORT, () => {
   console.log(`🔒 Secure server running on port ${PORT}`);

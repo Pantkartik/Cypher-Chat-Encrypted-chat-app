@@ -1493,6 +1493,67 @@
       "createdAt": "2025-11-02T07:11:08.918Z",
       "messages": [],
       "users": []
+    },
+    "1C28D7E6": {
+      "id": "1C28D7E6",
+      "createdAt": "2025-11-02T08:29:41.209Z",
+      "messages": [],
+      "users": []
+    },
+    "D2BFE0C1": {
+      "id": "D2BFE0C1",
+      "createdAt": "2025-11-02T08:31:45.926Z",
+      "messages": [],
+      "users": []
+    },
+    "3C156A20": {
+      "id": "3C156A20",
+      "createdAt": "2025-11-02T08:32:10.939Z",
+      "messages": [],
+      "users": []
+    },
+    "1B259208": {
+      "id": "1B259208",
+      "createdAt": "2025-11-02T08:40:46.529Z",
+      "messages": [],
+      "users": []
+    },
+    "TEST123": {
+      "id": "TEST123",
+      "createdAt": "2025-11-02T08:48:59.951Z",
+      "messages": [],
+      "users": [
+        {
+          "id": "Y7f6doRJPKdt62hMAAAB",
+          "name": "DebugUser",
+          "status": "online",
+          "isTyping": false
+        },
+        {
+          "id": "2mDXZE5V-r0Q9EeGAAAD",
+          "name": "DebugUser",
+          "status": "online",
+          "isTyping": false
+        },
+        {
+          "id": "k3jnZeFoh8XJUfDIAAAF",
+          "name": "DebugUser",
+          "status": "online",
+          "isTyping": false
+        },
+        {
+          "id": "NsyXRecLT-nYBaL6AAAH",
+          "name": "DebugUser",
+          "status": "online",
+          "isTyping": false
+        }
+      ]
+    },
+    "A03A5F46": {
+      "id": "A03A5F46",
+      "createdAt": "2025-11-02T08:50:32.178Z",
+      "messages": [],
+      "users": []
     }
   },
   "userSessions": {

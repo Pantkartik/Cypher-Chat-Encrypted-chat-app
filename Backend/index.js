@@ -448,11 +448,13 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start the server
-const port = 3001;
-server.listen(port, () => {
-  console.log(`Backend server is running on port ${port}`);
-});
+// Start the server only if this file is run directly (not imported)
+if (require.main === module) {
+  const port = 3001;
+  server.listen(port, () => {
+    console.log(`Backend server is running on port ${port}`);
+  });
+}
 
 // Graceful shutdown
 process.on('SIGINT', () => {

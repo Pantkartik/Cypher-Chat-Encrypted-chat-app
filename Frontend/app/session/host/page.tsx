@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Copy, RefreshCw, Users, ArrowLeft, CheckCircle, QrCode, Share2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { BACKEND_URL } from "@/lib/config"
 import { QRCodeCanvas } from "qrcode.react"
 
 export default function HostSessionPage() {
@@ -26,7 +27,7 @@ export default function HostSessionPage() {
   const generateSession = async () => {
     setIsGenerating(true)
     try {
-      const res = await fetch("http://localhost:3001/api/session", {
+      const res = await fetch(`${BACKEND_URL}/api/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       })
