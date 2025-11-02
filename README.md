@@ -195,6 +195,6 @@ This project currently has **no specified license**.
 
 This means that by default, all rights are reserved by the copyright holder, Pantkartik. You may not reproduce, distribute, or create derivative works from this project without explicit permission.
 
-**Copyright (c) 2024 Pantkartik. All rights reserved.**
+**Copyright (c) 2025 Pantkartik. All rights reserved.**
 
 For any inquiries regarding licensing or usage, please contact the main contributor.
