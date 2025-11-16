@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Phone, PhoneOff, Video, Users, Settings, Minimize2, Maximize2, X, Mic, MicOff, VideoOff, AlertCircle } from 'lucide-react'
+import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Users, Minimize2, Maximize2, X, AlertCircle } from 'lucide-react'
 
 interface JitsiVideoCallProps {
   isOpen: boolean
@@ -30,14 +30,43 @@ export default function JitsiVideoCall({
   const [jitsiApi, setJitsiApi] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isMinimized, setIsMinimized] = useState(false)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
   const [isAudioMuted, setIsAudioMuted] = useState(false)
   const [isVideoMuted, setIsVideoMuted] = useState(false)
-  const [connectionError, setConnectionError] = useState<string | null>(null)
+  const isInitializingRef = useRef(false)
+  const initializationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      // Clean up any existing API when component is closed
+      if (jitsiApi) {
+        console.log('Disposing Jitsi API - component closing')
+        jitsiApi.dispose()
+        setJitsiApi(null)
+      }
+      if (initializationTimeoutRef.current) {
+        clearTimeout(initializationTimeoutRef.current)
+        initializationTimeoutRef.current = null
+      }
+      isInitializingRef.current = false
+      return
+    }
+
+    // Prevent multiple simultaneous initializations
+    if (isInitializingRef.current) {
+      console.log('Jitsi initialization already in progress, skipping...')
+      return
+    }
 
     const loadJitsi = async () => {
+      // Double-check initialization guard
+      if (isInitializingRef.current) {
+        console.log('Jitsi initialization race condition detected, skipping...')
+        return
+      }
+      
+      isInitializingRef.current = true
+      
       try {
         setIsLoading(true)
         setConnectionError(null)
@@ -57,10 +86,18 @@ export default function JitsiVideoCall({
         if (jitsiContainerRef.current && (window as any).JitsiMeetExternalAPI) {
           const domain = 'meet.jit.si'
           
+          console.log('Jitsi API loaded successfully, creating meeting...')
+          console.log('Session ID:', sessionId)
+          console.log('Target User ID:', targetUserId)
+          console.log('Username:', username)
+          console.log('Is Audio Only:', isAudioOnly)
+          console.log('Is Group Call:', isGroupCall)
+          
           // Generate cryptographically secure room name
           let room: string
           if (roomName) {
-            room = roomName
+            // Sanitize room name to ensure it's valid for Jitsi
+            room = roomName.replace(/[^a-zA-Z0-9-_]/g, '').substring(0, 50)
           } else if (sessionId) {
             // Create cryptographically secure room name from session ID
             const timestamp = Date.now().toString(36)
@@ -72,9 +109,12 @@ export default function JitsiVideoCall({
             // For private chats, ensure consistent room naming
             if (isGroupCall === false && targetUserId && username) {
               const sortedIds = [username, targetUserId].sort().join('-')
-              room = `cypher-private-${sortedIds}-${timestamp}-${secureRandom}`
+              const baseName = `cypher-private-${sortedIds}`
+              // Sanitize and limit length
+              room = `${baseName.replace(/[^a-zA-Z0-9-_]/g, '').substring(0, 30)}-${timestamp}-${secureRandom}`
             } else {
-              room = `cypher-secure-${sessionId}-${timestamp}-${secureRandom}`
+              const baseName = `cypher-secure-${sessionId}`
+              room = `${baseName.replace(/[^a-zA-Z0-9-_]/g, '').substring(0, 30)}-${timestamp}-${secureRandom}`
             }
           } else {
             // Fallback secure room name with crypto random
@@ -83,7 +123,8 @@ export default function JitsiVideoCall({
             const array = new Uint8Array(8)
             crypto.getRandomValues(array)
             const secureRandom = Array.from(array, byte => byte.toString(36)).join('').substring(0, 8)
-            room = `cypher-secure-${targetUserId || 'default'}-${timestamp}-${secureRandom}`
+            const baseName = `cypher-secure-${targetUserId || 'default'}`
+            room = `${baseName.replace(/[^a-zA-Z0-9-_]/g, '').substring(0, 30)}-${timestamp}-${secureRandom}`
           }
           
           console.log('Creating cryptographically secure Jitsi room:', room)
@@ -215,29 +256,54 @@ export default function JitsiVideoCall({
             }
           }
 
-          const api = new (window as any).JitsiMeetExternalAPI(domain, options)
+          let api: any
+          try {
+            api = new (window as any).JitsiMeetExternalAPI(domain, options)
+            console.log('Jitsi API instance created successfully')
+          } catch (error) {
+            console.error('Failed to create Jitsi API instance:', error)
+            setIsLoading(false)
+            setConnectionError('Failed to create video call session. Please try again.')
+            isInitializingRef.current = false
+            return
+          }
           
           // Add connection timeout
-          const connectionTimeout = setTimeout(() => {
-            if (isLoading) {
-              console.error('Jitsi connection timeout')
+          initializationTimeoutRef.current = setTimeout(() => {
+            if (isLoading && isInitializingRef.current) {
+              console.error('Jitsi connection timeout after 30 seconds')
               setIsLoading(false)
               setConnectionError('Connection timeout. Please check your internet connection and try again.')
+              isInitializingRef.current = false
+              // Clean up the API instance if it exists
+              if (api) {
+                try {
+                  api.dispose()
+                } catch (disposeError) {
+                  console.error('Error disposing timeout API:', disposeError)
+                }
+              }
             }
           }, 30000) // 30 second timeout
           
           api.addEventListeners({
             readyToClose: () => {
               console.log('Jitsi meeting ready to close')
-              clearTimeout(connectionTimeout)
+              if (initializationTimeoutRef.current) {
+                clearTimeout(initializationTimeoutRef.current)
+                initializationTimeoutRef.current = null
+              }
               onClose()
             },
             videoConferenceJoined: () => {
               console.log('Successfully joined Jitsi conference')
-              clearTimeout(connectionTimeout)
+              if (initializationTimeoutRef.current) {
+                clearTimeout(initializationTimeoutRef.current)
+                initializationTimeoutRef.current = null
+              }
               setIsLoading(false)
               
-              // Get initial mute states - use the current API instance
+              // Get initial mute states
               try {
                 const audioMuted = api.isAudioMuted()
                 const videoMuted = api.isVideoMuted()
@@ -280,9 +346,13 @@ export default function JitsiVideoCall({
             },
             connectionFailed: (error: any) => {
               console.error('Jitsi connection failed:', error)
-              clearTimeout(connectionTimeout)
+              if (initializationTimeoutRef.current) {
+                clearTimeout(initializationTimeoutRef.current)
+                initializationTimeoutRef.current = null
+              }
               setIsLoading(false)
               setConnectionError(`Connection failed: ${error.message || 'Please check your internet connection and try again.'}`)
+              isInitializingRef.current = false
             },
             connectionEstablished: () => {
               console.log('Jitsi connection established')
@@ -298,6 +368,7 @@ export default function JitsiVideoCall({
         console.error('Error loading Jitsi:', error)
         setIsLoading(false)
         setConnectionError(`Failed to load video call: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        isInitializingRef.current = false
       }
     }
 
@@ -305,47 +376,39 @@ export default function JitsiVideoCall({
 
     return () => {
       if (jitsiApi) {
-        console.log('Disposing Jitsi API')
+        console.log('Disposing Jitsi API - cleanup function')
         jitsiApi.dispose()
         setJitsiApi(null)
       }
+      if (initializationTimeoutRef.current) {
+        clearTimeout(initializationTimeoutRef.current)
+        initializationTimeoutRef.current = null
+      }
+      isInitializingRef.current = false
     }
   }, [isOpen, roomName, targetUserId, username, isAudioOnly, onClose, sessionId])
 
+  const isEndingCallRef = useRef(false)
+
   const handleEndCall = () => {
     if (jitsiApi) {
-      jitsiApi.executeCommand('hangup')
-    }
-    onClose()
-  }
-
-  const handleToggleAudio = async () => {
-    if (jitsiApi) {
       try {
-        await jitsiApi.executeCommand('toggleAudio')
-        // Update state after command execution
-        setTimeout(() => {
-          const newAudioState = jitsiApi.isAudioMuted()
-          setIsAudioMuted(newAudioState)
-        }, 100)
+        // Prevent multiple end call attempts
+        if (isEndingCallRef.current) return
+        isEndingCallRef.current = true
+        
+        jitsiApi.executeCommand('hangup')
       } catch (error) {
-        console.error('Failed to toggle audio:', error)
+        console.error('Error disposing Jitsi API:', error)
+      } finally {
+        // Clean up state
+        setJitsiApi(null)
+        setIsLoading(false)
+        isEndingCallRef.current = false
+        onClose()
       }
-    }
-  }
-
-  const handleToggleVideo = async () => {
-    if (jitsiApi) {
-      try {
-        await jitsiApi.executeCommand('toggleVideo')
-        // Update state after command execution
-        setTimeout(() => {
-          const newVideoState = jitsiApi.isVideoMuted()
-          setIsVideoMuted(newVideoState)
-        }, 100)
-      } catch (error) {
-        console.error('Failed to toggle video:', error)
-      }
+    } else {
+      onClose()
     }
   }
 
@@ -353,7 +416,35 @@ export default function JitsiVideoCall({
     setIsMinimized(!isMinimized)
   }
 
-  if (!isOpen) return null
+  const handleToggleAudio = () => {
+    if (jitsiApi) {
+      try {
+        const currentAudioMuted = jitsiApi.isAudioMuted()
+        jitsiApi.executeCommand('toggleAudio')
+        // Optimistically update UI
+        setIsAudioMuted(!currentAudioMuted)
+        console.log('Toggling audio from', currentAudioMuted, 'to', !currentAudioMuted)
+      } catch (error) {
+        console.error('Error toggling audio:', error)
+      }
+    }
+  }
+
+  const handleToggleVideo = () => {
+    if (jitsiApi) {
+      try {
+        const currentVideoMuted = jitsiApi.isVideoMuted()
+        jitsiApi.executeCommand('toggleVideo')
+        // Optimistically update UI
+        setIsVideoMuted(!currentVideoMuted)
+        console.log('Toggling video from', currentVideoMuted, 'to', !currentVideoMuted)
+      } catch (error) {
+        console.error('Error toggling video:', error)
+      }
+    }
+  }
+
+  if (!isOpen || isEndingCallRef.current) return null
 
   return (
     <div className={`fixed inset-0 z-50 ${isMinimized ? 'bg-transparent' : 'bg-black/80'} flex items-center justify-center`}>
@@ -424,6 +515,7 @@ export default function JitsiVideoCall({
               variant={isAudioMuted ? "destructive" : "outline"}
               size="icon"
               className="w-12 h-12 rounded-full"
+              title={isAudioMuted ? "Unmute Audio" : "Mute Audio"}
             >
               {isAudioMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </Button>
@@ -433,6 +525,7 @@ export default function JitsiVideoCall({
               variant={isVideoMuted ? "destructive" : "outline"}
               size="icon"
               className="w-12 h-12 rounded-full"
+              title={isVideoMuted ? "Turn On Video" : "Turn Off Video"}
             >
               {isVideoMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
             </Button>
@@ -442,6 +535,7 @@ export default function JitsiVideoCall({
               variant="destructive"
               size="icon"
               className="w-12 h-12 rounded-full"
+              title="End Call"
             >
               <PhoneOff className="w-5 h-5" />
             </Button>

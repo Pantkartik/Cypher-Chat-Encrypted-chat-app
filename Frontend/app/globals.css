@@ -198,6 +198,42 @@
     @apply relative w-full h-full bg-gray-900 rounded-lg overflow-hidden;
   }
   
+  .video-call-overlay {
+    @apply fixed inset-0 z-50 bg-black/95 backdrop-blur-sm;
+  }
+  
+  .video-call-container {
+    @apply w-full h-full flex items-center justify-center;
+  }
+  
+  .video-call-local-video {
+    @apply absolute bottom-4 right-4 w-48 h-36 rounded-lg overflow-hidden border-2 border-white/20;
+  }
+  
+  .video-call-remote-video {
+    @apply w-full h-full object-cover;
+  }
+  
+  .video-call-controls {
+    @apply absolute bottom-8 left-1/2 transform -translate-x-1/2 flex gap-4;
+  }
+  
+  .video-call-button {
+    @apply w-12 h-12 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-110;
+  }
+  
+  .video-call-button.end {
+    @apply bg-red-600 hover:bg-red-700;
+  }
+  
+  .video-call-button.toggle {
+    @apply bg-gray-600 hover:bg-gray-700;
+  }
+  
+  .video-call-button.toggle.active {
+    @apply bg-green-600 hover:bg-green-700;
+  }
+  
   .video-grid {
     @apply grid gap-2 p-2 h-[calc(100%-80px)];
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -322,6 +358,19 @@
   
   .control-button.end-call:hover {
     background: linear-gradient(145deg, #ff5252, #ff1744);
+  }
+  
+  .control-button.end-call.ending {
+    background: linear-gradient(145deg, #ff9800, #f57c00);
+    @apply animate-pulse;
+  }
+  
+  .ending-spinner {
+    @apply animate-spin;
+  }
+  
+  .control-button.end-call.ending:hover {
+    background: linear-gradient(145deg, #ff9800, #f57c00);
   }
   
   .control-button:disabled {

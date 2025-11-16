@@ -9,6 +9,7 @@ import InstallPrompt from "@/components/install-prompt"
 import AndroidInstallPrompt from "@/components/android-install-prompt"
 import ManualInstallPrompt from "@/components/manual-install-prompt"
 import PWAInstaller from "@/components/pwa-installer"
+import { ConnectionStatus } from "@/components/connection-status"
 import "./globals.css"
 import "./mobile.css"
 
@@ -68,6 +69,7 @@ export default function RootLayout({
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} antialiased`}>
         <Suspense fallback={null}>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+            <ConnectionStatus />
             {children}
           </ThemeProvider>
         </Suspense>

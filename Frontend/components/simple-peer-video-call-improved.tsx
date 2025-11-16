@@ -34,6 +34,7 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [isInCall, setIsInCall] = useState(false)
+  const [isCalling, setIsCalling] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [callStartTime, setCallStartTime] = useState<Date | null>(null)
   const [callDuration, setCallDuration] = useState(0)
@@ -198,6 +199,7 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
       
       console.log(`Connected to ${userId}`)
       setIsInCall(true)
+      setIsCalling(false)
       setCallStartTime(new Date())
       
       // Update participant connection quality
@@ -294,6 +296,8 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
     if (!socket || !localStream) return
     
     try {
+      setIsCalling(true)
+      
       if (isGroupCall && roomId) {
         // Join room for group call
         socket.emit('join-simple-peer-room', { roomId, userId: sessionId })
@@ -313,6 +317,7 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
     } catch (error) {
       console.error('Error starting call:', error)
       setError('Failed to start call')
+      setIsCalling(false)
     }
   }
 
@@ -341,41 +346,78 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
   }
 
   // End call with comprehensive cleanup
-  const endCall = () => {
+  const endCall = async () => {
     console.log('Ending call...')
     
-    // Destroy all peer connections
-    peers.forEach((peer, userId) => {
-      cleanupPeer(userId)
-    })
+    // Add visual feedback
+    setIsLoading(true)
     
-    // Clean up local stream
-    if (localStream) {
-      localStream.getTracks().forEach(track => {
-        track.stop()
-        track.onended = null
+    try {
+      // Destroy all peer connections
+      peers.forEach((peer, userId) => {
+        cleanupPeer(userId)
       })
-      setLocalStream(null)
-      streamRef.current = null
+      
+      // Clean up local stream
+      if (localStream) {
+        localStream.getTracks().forEach(track => {
+          try {
+            track.stop()
+            track.onended = null
+          } catch (trackError) {
+            console.error('Error stopping track:', trackError)
+          }
+        })
+        setLocalStream(null)
+        streamRef.current = null
+      }
+      
+      // Clear video element sources
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null
+        localVideoRef.current.pause()
+      }
+      
+      // Reset call states
+      setIsInCall(false)
+      setIsCalling(false)
+      setCallStartTime(null)
+      setCallDuration(0)
+      setParticipants(new Map())
+      setIncomingCall(null)
+      
+      // Notify others - only if we were actually in a call
+      if (socket && (isInCall || isCalling)) {
+        try {
+          socket.emit('simple-peer-call-end', { roomId, from: sessionId })
+        } catch (socketError) {
+          console.error('Error emitting call-end event:', socketError)
+        }
+      }
+      
+      // Call the callback
+      if (onCallEnd) {
+        try {
+          onCallEnd()
+        } catch (callbackError) {
+          console.error('Error in onCallEnd callback:', callbackError)
+        }
+      }
+      
+      console.log('Call ended successfully')
+    } catch (error) {
+      console.error('Error during call cleanup:', error)
+      // Still reset states even if cleanup fails
+      setIsInCall(false)
+      setIsCalling(false)
+      setCallStartTime(null)
+      setCallDuration(0)
+      setParticipants(new Map())
+      setIncomingCall(null)
+    } finally {
+      // Remove loading state
+      setIsLoading(false)
     }
-    
-    // Clear video element sources
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null
-    }
-    
-    setIsInCall(false)
-    setCallStartTime(null)
-    setCallDuration(0)
-    setParticipants(new Map())
-    setIncomingCall(null)
-    
-    // Notify others
-    if (socket && isInCall) {
-      socket.emit('simple-peer-call-end', { roomId, from: sessionId })
-    }
-    
-    onCallEnd?.()
   }
 
   // Clean up a peer connection with proper cleanup
@@ -384,22 +426,42 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
     if (peer) {
       console.log(`Cleaning up peer connection for ${userId}`)
       
-      // Destroy the peer connection
-      peer.destroy()
-      
-      // Remove from state
-      setPeers(prev => {
-        const updated = new Map(prev)
-        updated.delete(userId)
-        return updated
-      })
-      
-      // Remove participant
-      setParticipants(prev => {
-        const updated = new Map(prev)
-        updated.delete(userId)
-        return updated
-      })
+      try {
+        // Remove all event listeners first
+        peer.removeAllListeners()
+        
+        // Destroy the peer connection
+        peer.destroy()
+        
+        // Remove from state
+        setPeers(prev => {
+          const updated = new Map(prev)
+          updated.delete(userId)
+          return updated
+        })
+        
+        // Remove participant
+        setParticipants(prev => {
+          const updated = new Map(prev)
+          updated.delete(userId)
+          return updated
+        })
+        
+        console.log(`Successfully cleaned up peer ${userId}`)
+      } catch (error) {
+        console.error(`Error cleaning up peer ${userId}:`, error)
+        // Still remove from state even if cleanup fails
+        setPeers(prev => {
+          const updated = new Map(prev)
+          updated.delete(userId)
+          return updated
+        })
+        setParticipants(prev => {
+          const updated = new Map(prev)
+          updated.delete(userId)
+          return updated
+        })
+      }
     }
   }
 
@@ -587,109 +649,112 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
   }
 
   return (
-    <div className="simple-peer-video-call">
-      {error && (
-        <div className="error-message">
-          <span>{error}</span>
-          <button onClick={() => setError(null)}>×</button>
-        </div>
-      )}
-      
-      {incomingCall && (
-        <div className="incoming-call">
-          <p>Incoming call from {incomingCall.callerName}</p>
-          <button onClick={() => answerCall(incomingCall.from)}>Answer</button>
-          <button onClick={() => setIncomingCall(null)}>Decline</button>
-        </div>
-      )}
-      
-      <div className="video-grid">
-        {/* Local video */}
-        <div className="video-tile local">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            muted
-            playsInline
-            className="video-element"
-          />
-          <div className="video-overlay">
-            <span className="participant-name">You ({username})</span>
-            {!isVideoEnabled && (
-              <div className="video-disabled-indicator">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" className="opacity-50">
-                  <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.5l4 4H17v3.5l4 4V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z"/>
-                </svg>
-                <span className="text-sm mt-2">Camera Off</span>
-              </div>
-            )}
-            {!isAudioEnabled && (
-              <div className="audio-disabled-indicator">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 .04.01.08.01.12l2.9-2.9zM5.27 3L3 5.27l6.01 6.01V11c0 1.66 1.34 3 3 3 .46 0 .89-.11 1.28-.29l2.88 2.88c-1.13.53-2.39.84-3.74.84-3.52 0-6.39-2.57-6.9-6H1c.55 3.38 3.14 6 6.46 6 2.01 0 3.81-.83 5.13-2.17L19.73 21 21 19.73 5.27 3z"/>
-                </svg>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* Remote videos */}
-        {Array.from(participants.values()).map((participant) => (
-          <div key={participant.id} className="video-tile remote">
-            {participant.stream ? (
+    <div className="video-call-overlay">
+      <div className="video-call-container">
+        <div className="simple-peer-video-call">
+          {error && (
+            <div className="error-message">
+              <span>{error}</span>
+              <button onClick={() => setError(null)}>×</button>
+            </div>
+          )}
+          
+          {incomingCall && (
+            <div className="incoming-call">
+              <p>Incoming call from {incomingCall.callerName}</p>
+              <button onClick={() => answerCall(incomingCall.from)}>Answer</button>
+              <button onClick={() => setIncomingCall(null)}>Decline</button>
+            </div>
+          )}
+          
+          <div className="video-grid">
+            {/* Local video */}
+            <div className="video-tile local">
               <video
+                ref={localVideoRef}
                 autoPlay
+                muted
                 playsInline
                 className="video-element"
-                ref={(el) => {
-                  if (el && participant.stream) {
-                    el.srcObject = participant.stream
-                  }
-                }}
               />
-            ) : (
-              <div className="video-placeholder">
-                <div className="loading-spinner">Loading...</div>
+              <div className="video-overlay">
+                <span className="participant-name">You ({username})</span>
+                {!isVideoEnabled && (
+                  <div className="video-disabled-indicator">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" className="opacity-50">
+                      <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.5l4 4H17v3.5l4 4V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z"/>
+                    </svg>
+                    <span className="text-sm mt-2">Camera Off</span>
+                  </div>
+                )}
+                {!isAudioEnabled && (
+                  <div className="audio-disabled-indicator">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 .04.01.08.01.12l2.9-2.9zM5.27 3L3 5.27l6.01 6.01V11c0 1.66 1.34 3 3 3 .46 0 .89-.11 1.28-.29l2.88 2.88c-1.13.53-2.39.84-3.74.84-3.52 0-6.39-2.57-6.9-6H1c.55 3.38 3.14 6 6.46 6 2.01 0 3.81-.83 5.13-2.17L19.73 21 21 19.73 5.27 3z"/>
+                    </svg>
+                  </div>
+                )}
               </div>
-            )}
-            <div className="video-overlay">
-              <span className="participant-name">{participant.name}</span>
-              {!participant.isVideoEnabled && (
-                <div className="video-disabled-indicator">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" className="opacity-50">
-                    <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.5l4 4H17v3.5l4 4V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z"/>
-                  </svg>
-                  <span className="text-sm mt-2">Camera Off</span>
-                </div>
-              )}
-              {!participant.isAudioEnabled && (
-                <div className="audio-disabled-indicator">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 .04.01.08.01.12l2.9-2.9zM5.27 3L3 5.27l6.01 6.01V11c0 1.66 1.34 3 3 3 .46 0 .89-.11 1.28-.29l2.88 2.88c-1.13.53-2.39.84-3.74.84-3.52 0-6.39-2.57-6.9-6H1c.55 3.38 3.14 6 6.46 6 2.01 0 3.81-.83 5.13-2.17L19.73 21 21 19.73 5.27 3z"/>
-                  </svg>
-                </div>
-              )}
-              {participant.connectionQuality === 'poor' && (
-                <div className="connection-indicator poor" title="Poor connection">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-                  </svg>
-                </div>
-              )}
-              {participant.connectionQuality === 'disconnected' && (
-                <div className="connection-indicator disconnected" title="Disconnected">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                  </svg>
-                </div>
-              )}
             </div>
+            
+            {/* Remote videos */}
+            {Array.from(participants.values()).map((participant) => (
+              <div key={participant.id} className="video-tile remote">
+                {participant.stream ? (
+                  <video
+                    autoPlay
+                    playsInline
+                    className="video-element"
+                    ref={(el) => {
+                      if (el && participant.stream) {
+                        el.srcObject = participant.stream
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="video-placeholder">
+                    <div className="loading-spinner">Loading...</div>
+                  </div>
+                )}
+                <div className="video-overlay">
+                  <span className="participant-name">{participant.name}</span>
+                  {!participant.isVideoEnabled && (
+                    <div className="video-disabled-indicator">
+                      <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" className="opacity-50">
+                        <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.5l4 4H17v3.5l4 4V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z"/>
+                      </svg>
+                      <span className="text-sm mt-2">Camera Off</span>
+                    </div>
+                  )}
+                  {!participant.isAudioEnabled && (
+                    <div className="audio-disabled-indicator">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 .04.01.08.01.12l2.9-2.9zM5.27 3L3 5.27l6.01 6.01V11c0 1.66 1.34 3 3 3 .46 0 .89-.11 1.28-.29l2.88 2.88c-1.13.53-2.39.84-3.74.84-3.52 0-6.39-2.57-6.9-6H1c.55 3.38 3.14 6 6.46 6 2.01 0 3.81-.83 5.13-2.17L19.73 21 21 19.73 5.27 3z"/>
+                      </svg>
+                    </div>
+                  )}
+                  {participant.connectionQuality === 'poor' && (
+                    <div className="connection-indicator poor" title="Poor connection">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                      </svg>
+                    </div>
+                  )}
+                  {participant.connectionQuality === 'disconnected' && (
+                    <div className="connection-indicator disconnected" title="Disconnected">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
       
       {/* Call controls */}
-      <div className="call-controls">
+      <div className="video-call-controls">
         <div className="call-info">
           {isInCall && callStartTime && (
             <span className="call-duration">{formatDuration(callDuration)}</span>
@@ -699,7 +764,7 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
         <div className="control-buttons">
           <button
             onClick={toggleVideo}
-            className={`control-button video-toggle ${!isVideoEnabled ? 'disabled' : ''}`}
+            className={`video-call-button toggle ${!isVideoEnabled ? 'disabled' : ''}`}
             title={isVideoEnabled ? 'Turn off video' : 'Turn on video'}
             disabled={isAudioOnly}
           >
@@ -716,7 +781,7 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
           
           <button
             onClick={toggleAudio}
-            className={`control-button audio-toggle ${!isAudioEnabled ? 'disabled' : ''}`}
+            className={`video-call-button toggle ${!isAudioEnabled ? 'disabled' : ''}`}
             title={isAudioEnabled ? 'Mute' : 'Unmute'}
           >
             {isAudioEnabled ? (
@@ -732,13 +797,21 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
           
           <button
             onClick={endCall}
-            className="control-button end-call"
+            className={`video-call-button end ${isLoading ? 'ending' : ''}`}
             title="End call"
-            disabled={!isInCall && !isCalling}
+            disabled={isLoading}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .5-.4.9-.9.9s-.9-.4-.9-.9V8.72c-1.45-.47-3-.72-4.6-.72-2.21 0-4 1.79-4 4s1.79 4 4 4c1.6 0 3.15-.25 4.6-.72v3.1c0 .5.4.9.9.9s.9-.4.9-.9v-3.1c1.45.47 3 .72 4.6.72 2.21 0 4-1.79 4-4s-1.79-4-4-4z"/>
-            </svg>
+            {isLoading ? (
+              <div className="ending-spinner">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+                </svg>
+              </div>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .5-.4.9-.9.9s-.9-.4-.9-.9V8.72c-1.45-.47-3-.72-4.6-.72-2.21 0-4 1.79-4 4s1.79 4 4 4c1.6 0 3.15-.25 4.6-.72v3.1c0 .5.4.9.9.9s.9-.4.9-.9v-3.1c1.45.47 3 .72 4.6.72 2.21 0 4-1.79 4-4s-1.79-4-4-4z"/>
+              </svg>
+            )}
           </button>
         </div>
         
@@ -762,6 +835,7 @@ const SimplePeerVideoCallImproved: React.FC<SimplePeerVideoCallProps> = ({
         </div>
       </div>
     </div>
+  </div>
   )
 }
 

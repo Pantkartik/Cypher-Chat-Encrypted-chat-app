@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connection Test</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .log { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Socket.IO Connection Test</h1>
+    <div>
+        <button onclick="testConnection()">Test Connection</button>
+        <button onclick="testMultipleUsers()">Test Multiple Users</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    <div id="results"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            results.appendChild(div);
+        }
+
+        function clearLogs() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        function testConnection() {
+            log('Starting connection test...', 'info');
+            
+            const socket = io('http://localhost:3001', {
+                transports: ['polling', 'websocket'],
+                timeout: 30000,
+                reconnection: false,
+                forceNew: true,
+                path: '/socket.io/',
+                withCredentials: true
+            });
+
+            const startTime = Date.now();
+
+            socket.on('connect', () => {
+                const connectTime = Date.now() - startTime;
+                log(`✅ Connected successfully in ${connectTime}ms`, 'success');
+                log(`Socket ID: ${socket.id}`, 'success');
+                log(`Transport: ${socket.io.engine.transport.name}`, 'success');
+                
+                // Test joining a session
+                socket.emit('joinSession', { sessionId: 'TEST123', username: 'TestUser1' });
+            });
+
+            socket.on('connect_error', (error) => {
+                log(`❌ Connection error: ${error.message}`, 'error');
+                log(`Error type: ${error.type}`, 'error');
+                log(`Transport: ${socket.io.engine?.transport?.name}`, 'error');
+            });
+
+            socket.on('connect_timeout', () => {
+                log('❌ Connection timeout', 'error');
+            });
+
+            socket.on('disconnect', (reason) => {
+                log(`Disconnected: ${reason}`, 'info');
+            });
+
+            socket.on('usersList', (users) => {
+                log(`✅ Joined session successfully. Users: ${users.length}`, 'success');
+                log(`Users in session: ${users.map(u => u.name).join(', ')}`, 'success');
+                socket.disconnect();
+            });
+
+            socket.on('error', (error) => {
+                log(`Socket error: ${error}`, 'error');
+            });
+
+            // Timeout after 20 seconds
+            setTimeout(() => {
+                if (!socket.connected) {
+                    log('❌ Test timeout - connection not established', 'error');
+                    socket.disconnect();
+                }
+            }, 20000);
+        }
+
+        function testMultipleUsers() {
+            log('Testing multiple users connection...', 'info');
+            
+            const users = ['User1', 'User2', 'User3', 'User4'];
+            const sockets = [];
+            let connectedCount = 0;
+
+            users.forEach((username, index) => {
+                setTimeout(() => {
+                    log(`Connecting ${username}...`, 'info');
+                    
+                    const socket = io('http://localhost:3001', {
+                        transports: ['polling', 'websocket'],
+                        timeout: 30000,
+                        reconnection: false,
+                        forceNew: true,
+                        path: '/socket.io/',
+                        withCredentials: true
+                    });
+
+                    sockets.push(socket);
+
+                    socket.on('connect', () => {
+                        connectedCount++;
+                        log(`✅ ${username} connected (ID: ${socket.id})`, 'success');
+                        socket.emit('joinSession', { sessionId: 'MULTI_TEST', username });
+                    });
+
+                    socket.on('connect_error', (error) => {
+                        log(`❌ ${username} connection error: ${error.message}`, 'error');
+                    });
+
+                    socket.on('usersList', (users) => {
+                        log(`✅ ${username} joined session. Total users: ${users.length}`, 'success');
+                        
+                        if (connectedCount === users.length) {
+                            log(`🎉 All ${connectedCount} users connected successfully!`, 'success');
+                            // Disconnect all after 3 seconds
+                            setTimeout(() => {
+                                sockets.forEach(s => s.disconnect());
+                                log('All test connections closed', 'info');
+                            }, 3000);
+                        }
+                    });
+
+                }, index * 1000); // Stagger connections by 1 second
+            });
+        }
+    </script>
+</body>
+</html>

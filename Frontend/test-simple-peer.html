@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Peer Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { color: green; }
+        .error { color: red; }
+        button { margin: 5px; padding: 10px 15px; }
+        #status { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Simple Peer Video Calling Test</h1>
+    
+    <div id="status">Status: Initializing...</div>
+    
+    <div class="test-section">
+        <h3>Connection Test</h3>
+        <button onclick="testSocketConnection()">Test Socket Connection</button>
+        <button onclick="testSimplePeer()">Test Simple Peer</button>
+        <div id="connection-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Media Test</h3>
+        <button onclick="testMediaDevices()">Test Media Devices</button>
+        <div id="media-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Integration Test</h3>
+        <button onclick="testIntegration()">Test Full Integration</button>
+        <div id="integration-results"></div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <script>
+        const BACKEND_URL = 'http://localhost:3004';
+        let socket = null;
+        let peer = null;
+        let localStream = null;
+
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = `Status: ${message}`;
+            statusEl.className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+        }
+
+        function logResult(containerId, message, success = true) {
+            const container = document.getElementById(containerId);
+            const div = document.createElement('div');
+            div.className = success ? 'success' : 'error';
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            container.appendChild(div);
+        }
+
+        async function testSocketConnection() {
+            try {
+                updateStatus('Testing socket connection...');
+                
+                if (socket) {
+                    socket.disconnect();
+                }
+                
+                socket = io(BACKEND_URL);
+                
+                socket.on('connect', () => {
+                    logResult('connection-results', `✅ Socket connected: ${socket.id}`, true);
+                    updateStatus('Socket connected successfully', 'success');
+                });
+                
+                socket.on('connect_error', (error) => {
+                    logResult('connection-results', `❌ Socket connection failed: ${error.message}`, false);
+                    updateStatus('Socket connection failed', 'error');
+                });
+                
+                socket.on('disconnect', (reason) => {
+                    logResult('connection-results', `Socket disconnected: ${reason}`, false);
+                });
+                
+                // Test Simple Peer events
+                socket.on('simple-peer-signal', (data) => {
+                    logResult('connection-results', `📡 Received signal from ${data.from}: ${data.signal.type}`, true);
+                });
+                
+                socket.on('simple-peer-call-request', (data) => {
+                    logResult('connection-results', `📞 Incoming call from ${data.callerName}`, true);
+                });
+                
+            } catch (error) {
+                logResult('connection-results', `❌ Socket test failed: ${error.message}`, false);
+                updateStatus('Socket test failed', 'error');
+            }
+        }
+
+        async function testMediaDevices() {
+            try {
+                updateStatus('Testing media devices...');
+                
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                const audioDevices = devices.filter(d => d.kind === 'audioinput');
+                
+                logResult('media-results', `📹 Found ${videoDevices.length} video devices`, videoDevices.length > 0);
+                logResult('media-results', `🎤 Found ${audioDevices.length} audio devices`, audioDevices.length > 0);
+                
+                // Test getting user media
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true, 
+                    audio: true 
+                });
+                
+                logResult('media-results', `✅ Media stream obtained successfully`, true);
+                logResult('media-results', `📊 Video tracks: ${localStream.getVideoTracks().length}`, true);
+                logResult('media-results', `🎵 Audio tracks: ${localStream.getAudioTracks().length}`, true);
+                
+                // Stop the stream to avoid keeping camera/mic active
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+                
+                updateStatus('Media devices test completed', 'success');
+                
+            } catch (error) {
+                logResult('media-results', `❌ Media test failed: ${error.message}`, false);
+                updateStatus('Media test failed', 'error');
+            }
+        }
+
+        async function testSimplePeer() {
+            try {
+                updateStatus('Testing Simple Peer...');
+                
+                if (!socket || !socket.connected) {
+                    logResult('connection-results', '❌ Socket not connected', false);
+                    return;
+                }
+                
+                // Create a test peer
+                const testPeer = new SimplePeer({
+                    initiator: true,
+                    trickle: false,
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' }
+                        ]
+                    }
+                });
+                
+                testPeer.on('signal', (data) => {
+                    logResult('connection-results', `✅ Simple Peer signal created: ${data.type}`, true);
+                    testPeer.destroy();
+                });
+                
+                testPeer.on('error', (error) => {
+                    logResult('connection-results', `❌ Simple Peer error: ${error.message}`, false);
+                    testPeer.destroy();
+                });
+                
+                // Simulate a small delay to let peer initialize
+                setTimeout(() => {
+                    testPeer.destroy();
+                    updateStatus('Simple Peer test completed', 'success');
+                }, 2000);
+                
+            } catch (error) {
+                logResult('connection-results', `❌ Simple Peer test failed: ${error.message}`, false);
+                updateStatus('Simple Peer test failed', 'error');
+            }
+        }
+
+        async function testIntegration() {
+            try {
+                updateStatus('Testing full integration...');
+                
+                // Test 1: Socket connection
+                if (!socket || !socket.connected) {
+                    logResult('integration-results', '❌ Socket not connected', false);
+                    return;
+                }
+                logResult('integration-results', '✅ Socket connected', true);
+                
+                // Test 2: Media devices
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: true, 
+                        audio: true 
+                    });
+                    logResult('integration-results', '✅ Media devices accessible', true);
+                } catch (error) {
+                    logResult('integration-results', `❌ Media devices failed: ${error.message}`, false);
+                    return;
+                }
+                
+                // Test 3: Create peer with media
+                const testPeer = new SimplePeer({
+                    initiator: true,
+                    stream: localStream,
+                    trickle: false,
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' }
+                        ]
+                    }
+                });
+                
+                testPeer.on('signal', (data) => {
+                    logResult('integration-results', `✅ Peer with media created signal: ${data.type}`, true);
+                    
+                    // Test 4: Socket signaling
+                    socket.emit('simple-peer-signal', {
+                        to: 'test-user',
+                        from: socket.id,
+                        signal: data,
+                        roomId: 'test-room'
+                    });
+                    
+                    logResult('integration-results', '✅ Signal sent via socket', true);
+                });
+                
+                testPeer.on('error', (error) => {
+                    logResult('integration-results', `❌ Peer error: ${error.message}`, false);
+                    cleanup(testPeer);
+                });
+                
+                // Cleanup after test
+                setTimeout(() => {
+                    cleanup(testPeer);
+                    updateStatus('Integration test completed', 'success');
+                }, 3000);
+                
+            } catch (error) {
+                logResult('integration-results', `❌ Integration test failed: ${error.message}`, false);
+                updateStatus('Integration test failed', 'error');
+            }
+        }
+        
+        function cleanup(peer) {
+            if (peer) peer.destroy();
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+        }
+        
+        // Initialize
+        updateStatus('Ready for testing');
+        
+    </script>
+</body>
+</html>
